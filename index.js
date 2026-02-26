@@ -15,12 +15,28 @@ fs.ensureDirSync(TEMP_DIR);
 
 // Detect Termux environment and Chromium path
 const isTermux = (process.env.PREFIX === '/data/data/com.termux/files/usr') || (process.arch === 'arm64' && process.platform === 'linux');
-const chromiumPath = isTermux
-    ? '/data/data/com.termux/files/usr/bin/chromium'
-    : undefined;
+
+function findChromiumPath() {
+    if (!isTermux) return undefined;
+
+    const possiblePaths = [
+        '/data/data/com.termux/files/usr/bin/chromium',
+        '/data/data/com.termux/files/usr/bin/chromium-browser',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser'
+    ];
+
+    for (const p of possiblePaths) {
+        if (require('fs').existsSync(p)) return p;
+    }
+
+    return 'chromium'; // Fallback
+}
+
+const chromiumPath = findChromiumPath();
 
 console.log(`[DEBUG] Environment: Termux=${isTermux}, Arch=${process.arch}, OS=${process.platform}`);
-if (chromiumPath) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
+if (isTermux) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
 
 const client = new Client({
     authStrategy: new LocalAuth(),
