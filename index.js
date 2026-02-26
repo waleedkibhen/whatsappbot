@@ -13,11 +13,14 @@ const TEMP_DIR = path.join(__dirname, 'temp_videos');
 // Ensure temp directory exists
 fs.ensureDirSync(TEMP_DIR);
 
-// Detect Termux environment
-const isTermux = process.env.PREFIX === '/data/data/com.termux/files/usr';
+// Detect Termux environment and Chromium path
+const isTermux = (process.env.PREFIX === '/data/data/com.termux/files/usr') || (process.arch === 'arm64' && process.platform === 'linux');
 const chromiumPath = isTermux
     ? '/data/data/com.termux/files/usr/bin/chromium'
     : undefined;
+
+console.log(`[DEBUG] Environment: Termux=${isTermux}, Arch=${process.arch}, OS=${process.platform}`);
+if (chromiumPath) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
 
 const client = new Client({
     authStrategy: new LocalAuth(),
@@ -45,7 +48,8 @@ async function downloadFacebookVideo(url, outputPath) {
     let browser;
     try {
         browser = await puppeteer.launch({
-            headless: "new",
+            headless: true,
+            executablePath: chromiumPath,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
 
