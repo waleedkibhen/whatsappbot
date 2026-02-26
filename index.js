@@ -40,6 +40,7 @@ if (isTermux) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
 
 const client = new Client({
     authStrategy: new LocalAuth(),
+    authTimeoutMs: 60000, // Increase timeout for slower mobile connections
     puppeteer: {
         headless: true,
         executablePath: chromiumPath,
@@ -47,7 +48,10 @@ const client = new Client({
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-gpu',
-            '--disable-dev-shm-usage'
+            '--disable-dev-shm-usage',
+            '--single-process', // Critical for ARM64/Android stability
+            '--no-zygote',
+            '--no-first-run'
         ]
     }
 });
@@ -66,7 +70,14 @@ async function downloadFacebookVideo(url, outputPath) {
         browser = await puppeteer.launch({
             headless: true,
             executablePath: chromiumPath,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--single-process',
+                '--no-zygote'
+            ]
         });
 
         const page = await browser.newPage();
