@@ -13,6 +13,17 @@ const TEMP_DIR = path.join(__dirname, 'temp_videos');
 // Ensure temp directory exists
 fs.ensureDirSync(TEMP_DIR);
 
+/**
+ * AUTHORIZED NUMBERS
+ * Add the phone numbers (with country code, e.g. '96590967095@c.us') 
+ * that are allowed to trigger the bot here.
+ */
+const AUTHORIZED_NUMBERS = [
+    '96590967095@c.us', // Your number
+    '96566154015@c.us', // Your mom's number
+    // Add other authorized numbers here
+];
+
 // Detect Termux environment and Chromium path
 const isTermux = (process.env.PREFIX === '/data/data/com.termux/files/usr') || (process.arch === 'arm64' && process.platform === 'linux');
 
@@ -172,7 +183,8 @@ client.on('qr', (qr) => {
 
 client.on('ready', () => {
     console.log('\nWhatsApp Bot is ready and listening!');
-    console.log('Mode: Open Access (Anyone can use "waiz [link]")');
+    console.log('Mode: Restricted Access (Authorized numbers only)');
+    console.log(`Authorized Numbers: ${AUTHORIZED_NUMBERS.join(', ')}`);
 });
 
 /**
@@ -189,6 +201,12 @@ client.on('message_create', async (msg) => {
     // If it's from YOU, only proceed if it contains 'waiz'
     // This prevents the bot from hearing its own "Hang on!" messages
     if (msg.fromMe && !text.includes('waiz')) {
+        return;
+    }
+
+    // RESTRICTION: Only respond to authorized numbers
+    if (!AUTHORIZED_NUMBERS.includes(msg.from)) {
+        // console.log(`[DEBUG] Ignored unauthorized message from: ${msg.from}`);
         return;
     }
 
