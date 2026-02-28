@@ -197,24 +197,42 @@ client.on('message_create', async (msg) => {
     // Identity check
     const sender = msg.author || msg.from;
 
+    // Log all incoming messages for debugging (can be noisy, but helpful for now)
+    console.log(`[DEBUG] Incoming message from ${sender}: ${msg.body.substring(0, 50)}...`);
+
     // RESTRICTION: Only respond to authorized numbers
     if (!AUTHORIZED_NUMBERS.includes(sender)) {
+        console.log(`[DEBUG] Unauthorized access attempt from ${sender}. Ignoring.`);
         return;
     }
 
-    const hasFbLink = /facebook\.com|fb\.watch|fb\.com/.test(text);
+    // MORE ROBUST DETECTION (handles facebook.com, fb.watch, fb.com, fb.me, and share links)
+    const fbLinkRegex = /(facebook\.com|fb\.watch|fb\.com|fb\.me)/i;
+    const hasFbLink = fbLinkRegex.test(msg.body);
 
-    console.log(`[DEBUG] Incoming message from: ${sender}`);
-    console.log(`[DEBUG] Text: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
+    console.log(`[DEBUG] Message info: Type=${msg.type}, Sender=${sender}`);
+    console.log(`[DEBUG] Body Length: ${msg.body.length}`);
+    console.log(`[DEBUG] Text: ${msg.body.substring(0, 100)}`);
     console.log(`[DEBUG] hasFbLink: ${hasFbLink}`);
 
     if (hasFbLink) {
         console.log(`\n[${new Date().toLocaleTimeString()}] Processing link from: ${msg.from}`);
 
-        const urlMatch = msg.body.match(/https?:\/\/[^\s]+/);
-        if (!urlMatch) return;
+        // More flexible URL matching (catches links even if they have weird prefixes or extra text)
+        const urlMatch = msg.body.match(/(https?:\/\/[^\s]+|www\.facebook\.com[^\s]+|fb\.watch[^\s]+|fb\.com[^\s]+)/i);
 
-        const url = urlMatch[0];
+        if (!urlMatch) {
+            console.log(`[DEBUG] hasFbLink was true, but could not extract a valid URL from: ${msg.body}`);
+            return;
+        }
+
+        let url = urlMatch[0];
+        // Prepend https:// if it's missing (e.g. if link started with www.facebook.com)
+        if (!url.startsWith('http')) {
+            url = 'https://' + url;
+        }
+
+        console.log(`[DEBUG] Extracted URL: ${url}`);
         const filename = `fb_video_${Date.now()}.mp4`;
         const filePath = path.join(TEMP_DIR, filename);
 
@@ -222,7 +240,13 @@ client.on('message_create', async (msg) => {
             await msg.reply('⏳ Hang on! I\'m fetching that video for you...');
 
             console.log('Downloading video...');
-            await downloadFacebookVideo(url, filePath);
+            // Wrap in a promise to enforce a 2-minute total timeout
+            const downloadPromise = downloadFacebookVideo(url, filePath);
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Download timed out after 2 minutes')), 120000)
+            );
+
+            await Promise.race([downloadPromise, timeoutPromise]);
 
             if (await fs.pathExists(filePath)) {
                 console.log('Sending video...');
@@ -253,4 +277,13 @@ client.on('message_create', async (msg) => {
 console.log('Starting WhatsApp Client...');
 client.initialize().catch(err => {
     console.error('Initialization Error:', err);
+});
+
+// GLOBAL ERROR HANDLING TO PREVENT CRASHES
+process.on('uncaughtException', (err) => {
+    console.error('[CRITICAL] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRITICAL] Unhandled Rejection at:', promise, 'reason:', reason);
 });
