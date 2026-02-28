@@ -21,6 +21,7 @@ fs.ensureDirSync(TEMP_DIR);
 const AUTHORIZED_NUMBERS = [
     '96590967095@c.us', // Your number
     '96566154015@c.us', // Your mom's number
+    '195524426752006@lid', // Your sender ID
     // Add other authorized numbers here
 ];
 
