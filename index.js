@@ -94,35 +94,57 @@ async function downloadFacebookVideo(url, outputPath) {
 
         const page = await browser.newPage();
 
-        // Use a realistic user agent
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36');
+        // Use a realistic, modern user agent
+        await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Upgrade-Insecure-Requests': '1'
+        });
 
         console.log(`[DEBUG] Step 2: Navigating to page...`);
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+        // Use a longer timeout and wait for network to be idle
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
 
+        // Sometimes FB redirects to a login page or a different URL
         const finalUrl = page.url();
         console.log(`[DEBUG] Step 3: Final URL: ${finalUrl}`);
 
         const html = await page.content();
 
+        // Check for common blocking indicators
+        if (html.includes('id="login_form"') || html.includes('login_button_inline') || finalUrl.includes('facebook.com/login')) {
+            console.log(`[DEBUG] Blocked by login wall.`);
+            throw new Error('Facebook is asking for login. This video might be private or protected.');
+        }
+
         // Try to find video URL in common patterns
         let videoUrl = '';
 
-        // 1. Check for Reels specific video URL or og:video
+        // 1. Check for Meta Tags (highest reliability)
         videoUrl = await page.evaluate(() => {
-            const meta = document.querySelector('meta[property="og:video"]') ||
-                document.querySelector('meta[property="og:video:secure_url"]') ||
-                document.querySelector('meta[name="twitter:player:stream"]');
-            return meta ? meta.content : null;
+            const selectors = [
+                'meta[property="og:video"]',
+                'meta[property="og:video:secure_url"]',
+                'meta[property="og:video:url"]',
+                'meta[name="twitter:player:stream"]'
+            ];
+            for (const s of selectors) {
+                const el = document.querySelector(s);
+                if (el && el.content && el.content.startsWith('http')) return el.content;
+            }
+            return null;
         });
 
-        // 2. Generic Regex Patterns in HTML source
+        // 2. Comprehensive Regex Patterns in HTML source
         if (!videoUrl) {
             const patterns = [
-                /hd_src:"([^"]+)"/,
-                /sd_src:"([^"]+)"/,
                 /"playable_url":"([^"]+)"/,
                 /"playable_url_quality_hd":"([^"]+)"/,
+                /"playable_url_quality_sd":"([^"]+)"/,
+                /hd_src:"([^"]+)"/,
+                /sd_src:"([^"]+)"/,
+                /sd_src_no_ratelimit:"([^"]+)"/,
+                /hd_src_no_ratelimit:"([^"]+)"/,
                 /video_url:"([^"]+)"/,
                 /video_url\\":\\"([^\\"]+)\\"/,
                 /browser_native_sd_url":"([^"]+)"/,
@@ -132,19 +154,28 @@ async function downloadFacebookVideo(url, outputPath) {
             for (const pattern of patterns) {
                 const match = html.match(pattern);
                 if (match && match[1]) {
+                    // Clean up the URL (unescape characters)
                     videoUrl = match[1].replace(/\\/g, '');
-                    console.log(`[DEBUG] Found video URL with pattern: ${pattern.toString().substring(0, 30)}...`);
-                    break;
+                    // FB URLs sometimes come with encoded ampersands
+                    videoUrl = videoUrl.replace(/&amp;/g, '&');
+
+                    if (videoUrl.startsWith('http')) {
+                        console.log(`[DEBUG] Found video URL with pattern: ${pattern.toString().substring(0, 40)}...`);
+                        break;
+                    } else {
+                        videoUrl = ''; // Reset if it's not a real URL
+                    }
                 }
             }
         }
 
         if (!videoUrl) {
-            if (html.includes('id="login_form"') || html.includes('login_button_inline')) {
-                throw new Error('Facebook is asking for login. This video might be protected.');
-            }
-            throw new Error('Could not find video source URL. Try a different link.');
+            console.log(`[DEBUG] Scraper failed to find source. HTML snippet (1000 chars):`);
+            console.log(html.substring(0, 1000).replace(/\s+/g, ' '));
+            throw new Error('Could not find video source URL. The link might be expired or restricted.');
         }
+
+        console.log(`[DEBUG] Step 4: Downloading file from source...`);
 
         console.log(`[DEBUG] Step 4: Downloading file from source...`);
 
