@@ -138,17 +138,17 @@ async function downloadFacebookVideo(url, outputPath) {
         // 2. Comprehensive Regex Patterns in HTML source
         if (!videoUrl) {
             const patterns = [
-                /"playable_url":"([^"]+)"/,
-                /"playable_url_quality_hd":"([^"]+)"/,
                 /"playable_url_quality_sd":"([^"]+)"/,
-                /hd_src:"([^"]+)"/,
                 /sd_src:"([^"]+)"/,
                 /sd_src_no_ratelimit:"([^"]+)"/,
-                /hd_src_no_ratelimit:"([^"]+)"/,
-                /video_url:"([^"]+)"/,
-                /video_url\\":\\"([^\\"]+)\\"/,
                 /browser_native_sd_url":"([^"]+)"/,
-                /browser_native_hd_url":"([^"]+)"/
+                /"playable_url_quality_hd":"([^"]+)"/,
+                /hd_src:"([^"]+)"/,
+                /hd_src_no_ratelimit:"([^"]+)"/,
+                /browser_native_hd_url":"([^"]+)"/,
+                /"playable_url":"([^"]+)"/,
+                /video_url:"([^"]+)"/,
+                /video_url\\":\\"([^\\"]+)\\"/
             ];
 
             for (const pattern of patterns) {
@@ -175,9 +175,7 @@ async function downloadFacebookVideo(url, outputPath) {
             throw new Error('Could not find video source URL. The link might be expired or restricted.');
         }
 
-        console.log(`[DEBUG] Step 4: Downloading file from source...`);
-
-        console.log(`[DEBUG] Step 4: Downloading file from source...`);
+        console.log(`[DEBUG] Step 4: Starting download...`);
 
         // Close browser before downloading to save resources
         await browser.close();
