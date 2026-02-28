@@ -194,36 +194,19 @@ client.on('ready', () => {
 client.on('message_create', async (msg) => {
     const text = msg.body.trim().toLowerCase();
 
-    // DEBUG: Log EVERY message to the terminal so we can see what's happening
-    console.log(`\n[DEBUG] New Message: "${msg.body}"`);
-    console.log(`[DEBUG] From: ${msg.from} | FromMe: ${msg.fromMe}`);
-
-    // If it's from YOU, only proceed if it contains 'waiz'
-    // This prevents the bot from hearing its own "Hang on!" messages
-    if (msg.fromMe && !text.includes('waiz')) {
-        return;
-    }
+    // Identity check
+    const sender = msg.author || msg.from;
 
     // RESTRICTION: Only respond to authorized numbers
-    if (!AUTHORIZED_NUMBERS.includes(msg.from)) {
-        // console.log(`[DEBUG] Ignored unauthorized message from: ${msg.from}`);
+    if (!AUTHORIZED_NUMBERS.includes(sender)) {
         return;
     }
 
-    // Simple Ping Command for testing
-    if (text === 'ping' || text === 'hi' || text === 'hello') {
-        console.log('[DEBUG] Ping received, replying...');
-        await msg.reply('👋 I am awake and listening!');
-        return;
-    }
-
-    // Check for trigger keyword 'waiz' (case-insensitive)
-    const hasTrigger = text.includes('waiz'); // Using .includes to be safer
     const hasFbLink = text.includes('facebook.com') || text.includes('fb.watch');
 
-    console.log(`[DEBUG] hasTrigger: ${hasTrigger}, hasFbLink: ${hasFbLink}`);
+    console.log(`[DEBUG] hasFbLink: ${hasFbLink}`);
 
-    if (hasTrigger && hasFbLink) {
+    if (hasFbLink) {
         console.log(`\n[${new Date().toLocaleTimeString()}] Processing link from: ${msg.from}`);
 
         const urlMatch = msg.body.match(/https?:\/\/[^\s]+/);
