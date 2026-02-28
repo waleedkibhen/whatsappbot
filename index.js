@@ -202,8 +202,10 @@ client.on('message_create', async (msg) => {
         return;
     }
 
-    const hasFbLink = text.includes('facebook.com') || text.includes('fb.watch');
+    const hasFbLink = /facebook\.com|fb\.watch|fb\.com/.test(text);
 
+    console.log(`[DEBUG] Incoming message from: ${sender}`);
+    console.log(`[DEBUG] Text: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`);
     console.log(`[DEBUG] hasFbLink: ${hasFbLink}`);
 
     if (hasFbLink) {
