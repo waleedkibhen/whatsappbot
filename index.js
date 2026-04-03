@@ -45,7 +45,7 @@ function findChromiumPath() {
     return undefined; // Let Puppeteer use its bundled version
 }
 
-const chromiumPath = findChromiumPath();
+const chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH || findChromiumPath();
 
 console.log(`[DEBUG] Environment: Termux=${isTermux}, Arch=${process.arch}, OS=${process.platform}`);
 if (isTermux) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
@@ -232,11 +232,11 @@ client.on('message_create', async (msg) => {
     // Identity check
     const sender = msg.author || msg.from;
 
-    // Log all incoming messages for debugging (can be noisy, but helpful for now)
-    console.log(`[DEBUG] Incoming message from ${sender}: ${msg.body.substring(0, 50)}...`);
+    // Log all incoming messages for debugging
+    console.log(`[DEBUG] Incoming message from ${sender} (fromMe: ${msg.fromMe}): ${msg.body.substring(0, 50)}...`);
 
-    // RESTRICTION: Only respond to authorized numbers
-    if (!AUTHORIZED_NUMBERS.includes(sender)) {
+    // RESTRICTION: Only respond to authorized numbers OR messages sent by the linked phone itself
+    if (!msg.fromMe && !AUTHORIZED_NUMBERS.includes(sender)) {
         console.log(`[DEBUG] Unauthorized access attempt from ${sender}. Ignoring.`);
         return;
     }
