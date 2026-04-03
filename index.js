@@ -206,12 +206,17 @@ async function downloadFacebookVideo(url, outputPath) {
 /**
  * QR Code Generation
  */
+let qrCodeData = null; // Store it for the web server
+
 client.on('qr', (qr) => {
+    qrCodeData = qr;
     console.log('\n--- SCAN THE QR CODE BELOW ---');
+    console.log('Go to your Render Web Service URL in your browser to scan the QR code visually!');
     qrcode.generate(qr, { small: true });
 });
 
 client.on('ready', () => {
+    qrCodeData = null; // Clear it once connected
     console.log('\nWhatsApp Bot is ready and listening!');
     console.log('Mode: Restricted Access (Authorized numbers only)');
     console.log(`Authorized Numbers: ${AUTHORIZED_NUMBERS.join(', ')}`);
@@ -304,16 +309,81 @@ client.on('message_create', async (msg) => {
     }
 });
 
-// --- RENDER WEB SERVICE HEALTH CHECK ---
+// --- RENDER WEB SERVICE HEALTH CHECK & QR CODE VISUALIZER ---
 // Render requires web services to bind to a port, otherwise the deploy fails.
 const http = require('http');
 const port = process.env.PORT || 3000;
 http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.write('WhatsApp Bot is running!');
-    res.end();
+    if (req.url === '/') {
+        if (qrCodeData) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>WhatsApp Bot - QR Code</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+                <style>
+                    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+                    .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+                    #qrcode { margin-top: 1.5rem; display: flex; justify-content: center; }
+                    h2 { margin-top: 0; color: #128C7E; }
+                    p { color: #555; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h2>WhatsApp Authentication</h2>
+                    <p>Scan this QR code with your WhatsApp app to link the bot.</p>
+                    <div id="qrcode"></div>
+                </div>
+                <script>
+                    new QRCode(document.getElementById("qrcode"), {
+                        text: "${qrCodeData}",
+                        width: 256,
+                        height: 256,
+                        colorDark : "#000000",
+                        colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.M
+                    });
+                    
+                    // Auto-refresh the page every 10 seconds to check if authenticated or new QR
+                    setTimeout(() => location.reload(), 10000);
+                </script>
+            </body>
+            </html>
+            `);
+            res.end();
+        } else {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>WhatsApp Bot Status</title>
+                <style>
+                    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+                    .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+                    h2 { color: #128C7E; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h2>✅ WhatsApp Bot is Running!</h2>
+                    <p>The bot is currently linked and active, or waiting for initialization.</p>
+                </div>
+            </body>
+            </html>
+            `);
+            res.end();
+        }
+    } else {
+        res.writeHead(404);
+        res.end();
+    }
 }).listen(port, () => {
-    console.log(`Health check server listening on port ${port}`);
+    console.log(`Health check server listening on port ${port} / QR Visualizer URL`);
 });
 
 console.log('Starting WhatsApp Client...');
