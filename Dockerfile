@@ -1,4 +1,4 @@
-FROM node:18-bullseye-slim
+FROM node:20-bullseye-slim
 
 # Install latest chromium package and its dependencies
 RUN apt-get update && apt-get install -y \
