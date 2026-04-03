@@ -77,22 +77,12 @@ const puppeteer = require('puppeteer');
 async function downloadFacebookVideo(url, outputPath) {
     console.log(`[DEBUG] Step 1: Launching browser to fetch: ${url}`);
 
-    let browser;
+    let page;
     try {
-        browser = await puppeteer.launch({
-            headless: true,
-            executablePath: chromiumPath,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-                '--single-process',
-                '--no-zygote'
-            ]
-        });
-
-        const page = await browser.newPage();
+        if (!client.pupBrowser) {
+            throw new Error("Browser instance is not ready yet.");
+        }
+        page = await client.pupBrowser.newPage();
 
         // Use a realistic, modern user agent
         await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
@@ -177,9 +167,9 @@ async function downloadFacebookVideo(url, outputPath) {
 
         console.log(`[DEBUG] Step 4: Starting download...`);
 
-        // Close browser before downloading to save resources
-        await browser.close();
-        browser = null;
+        // Close page before downloading to save resources
+        await page.close();
+        page = null;
 
         // Use axios for the actual binary download
         const videoResponse = await axios({
@@ -198,7 +188,7 @@ async function downloadFacebookVideo(url, outputPath) {
 
     } catch (error) {
         console.error('[DEBUG] Scraper error:', error.message);
-        if (browser) await browser.close();
+        if (page) await page.close();
         throw error;
     }
 }
