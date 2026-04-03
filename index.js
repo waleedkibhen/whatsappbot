@@ -42,7 +42,7 @@ function findChromiumPath() {
         if (require('fs').existsSync(p)) return p;
     }
 
-    return 'chromium'; // Fallback
+    return undefined; // Let Puppeteer use its bundled version
 }
 
 const chromiumPath = findChromiumPath();
@@ -302,6 +302,18 @@ client.on('message_create', async (msg) => {
             }
         }
     }
+});
+
+// --- RENDER WEB SERVICE HEALTH CHECK ---
+// Render requires web services to bind to a port, otherwise the deploy fails.
+const http = require('http');
+const port = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.write('WhatsApp Bot is running!');
+    res.end();
+}).listen(port, () => {
+    console.log(`Health check server listening on port ${port}`);
 });
 
 console.log('Starting WhatsApp Client...');
