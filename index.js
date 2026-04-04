@@ -54,6 +54,8 @@ if (isTermux) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
 
 const MONGODB_URI = process.env.MONGODB_URI;
 let client;
+let qrCodeData = null;
+let botReady = false;
 
 async function initializeBot() {
     let authStrategyConfig;
