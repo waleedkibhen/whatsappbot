@@ -1,9 +1,11 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, RemoteAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs-extra');
 const path = require('path');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const mongoose = require('mongoose');
+const { MongoStore } = require('wwebjs-mongo');
 
 /**
  * CONFIGURATION
@@ -50,23 +52,147 @@ const chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH || findChromiumPath()
 console.log(`[DEBUG] Environment: Termux=${isTermux}, Arch=${process.arch}, OS=${process.platform}`);
 if (isTermux) console.log(`[DEBUG] Using Chromium at: ${chromiumPath}`);
 
-const client = new Client({
-    authStrategy: new LocalAuth(),
-    authTimeoutMs: 60000, // Increase timeout for slower mobile connections
-    puppeteer: {
-        headless: true,
-        executablePath: chromiumPath,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-gpu',
-            '--disable-dev-shm-usage',
-            '--single-process', // Critical for ARM64/Android stability
-            '--no-zygote',
-            '--no-first-run'
-        ]
+const MONGODB_URI = process.env.MONGODB_URI;
+let client;
+
+async function initializeBot() {
+    let authStrategyConfig;
+
+    if (MONGODB_URI) {
+        console.log('[DEBUG] MONGODB_URI found! Connecting to MongoDB for RemoteAuth...');
+        await mongoose.connect(MONGODB_URI);
+        console.log('[DEBUG] Connected to MongoDB successfully. Setting up RemoteAuth.');
+        
+        const store = new MongoStore({ mongoose: mongoose });
+        authStrategyConfig = new RemoteAuth({
+            store: store,
+            backupSyncIntervalMs: 300000
+        });
+    } else {
+        console.log('[DEBUG] No MONGODB_URI provided. Falling back to LocalAuth (Ephemeral, loses session on restart).');
+        authStrategyConfig = new LocalAuth();
     }
-});
+
+    client = new Client({
+        authStrategy: authStrategyConfig,
+        authTimeoutMs: 60000, // Increase timeout for slower connections
+        puppeteer: {
+            headless: true,
+            executablePath: chromiumPath,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--single-process', // Critical for ARM64/Android stability
+                '--no-zygote',
+                '--no-first-run'
+            ]
+        }
+    });
+
+    /**
+     * QR Code Generation
+     */
+    client.on('qr', (qr) => {
+        qrCodeData = qr;
+        botReady = false; // If we get a QR, we are definitely not ready
+        console.log('\n--- SCAN THE QR CODE BELOW ---');
+        console.log('Go to your Render Web Service URL in your browser to scan the QR code visually!');
+        qrcode.generate(qr, { small: true });
+    });
+
+    client.on('remote_session_saved', () => {
+        console.log('[DEBUG] Session successfully backed up to MongoDB.');
+    });
+
+    client.on('ready', () => {
+        qrCodeData = null; // Clear it once connected
+        botReady = true;
+        console.log('\nWhatsApp Bot is ready and listening!');
+        console.log('Mode: Restricted Access (Authorized numbers only)');
+        console.log(`Authorized Numbers: ${AUTHORIZED_NUMBERS.join(', ')}`);
+    });
+
+    /**
+     * Message Listener
+     */
+    client.on('message_create', async (msg) => {
+        const text = msg.body.trim().toLowerCase();
+
+        // Identity check
+        const sender = msg.author || msg.from;
+
+        // Log all incoming messages for debugging
+        console.log(`[DEBUG] Incoming message from ${sender} (fromMe: ${msg.fromMe}): ${msg.body.substring(0, 50)}...`);
+
+        // RESTRICTION: Only respond to authorized numbers OR messages sent by the linked phone itself
+        if (!msg.fromMe && !AUTHORIZED_NUMBERS.includes(sender)) {
+            console.log(`[DEBUG] Unauthorized access attempt from ${sender}. Ignoring.`);
+            return;
+        }
+
+        const hasFbLink = /(facebook\.com|fb\.watch|fb\.com|fb\.me)/i.test(msg.body);
+
+        if (hasFbLink) {
+            console.log(`\n[${new Date().toLocaleTimeString()}] Processing link from: ${msg.from}`);
+
+            // More flexible URL matching
+            const urlMatch = msg.body.match(/(https?:\/\/[^\s]+|www\.facebook\.com[^\s]+|fb\.watch[^\s]+|fb\.com[^\s]+)/i);
+
+            if (!urlMatch) {
+                return;
+            }
+
+            let url = urlMatch[0];
+            if (!url.startsWith('http')) {
+                url = 'https://' + url;
+            }
+
+            console.log(`[DEBUG] Extracted URL: ${url}`);
+            const filename = `fb_video_${Date.now()}.mp4`;
+            const filePath = path.join(TEMP_DIR, filename);
+
+            try {
+                await msg.reply('⏳ Hang on! I\'m fetching that video for you...');
+
+                const downloadPromise = downloadFacebookVideo(url, filePath);
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Download timed out after 2 minutes')), 120000)
+                );
+
+                await Promise.race([downloadPromise, timeoutPromise]);
+
+                if (await fs.pathExists(filePath)) {
+                    console.log('Sending video...');
+                    const media = MessageMedia.fromFilePath(filePath);
+
+                    await client.sendMessage(msg.from, media, {
+                        caption: 'Here is your Facebook video! 🎬',
+                        quotedMessageId: msg.id._serialized
+                    });
+
+                    console.log('✓ Success: Video sent.');
+                } else {
+                    throw new Error('Download failed: File not found.');
+                }
+
+            } catch (error) {
+                console.error('✘ Error:', error.message);
+                await msg.reply('❌ Oops! I couldn\'t download that video. It might be private or the link might be broken.');
+            } finally {
+                if (await fs.pathExists(filePath)) {
+                    await fs.remove(filePath);
+                }
+            }
+        }
+    });
+
+    console.log('Starting WhatsApp Client...');
+    client.initialize().catch(err => {
+        console.error('Initialization Error:', err);
+    });
+}
 
 const puppeteer = require('puppeteer');
 
@@ -205,115 +331,6 @@ async function downloadFacebookVideo(url, outputPath) {
     }
 }
 
-/**
- * QR Code Generation
- */
-let qrCodeData = null; // Store it for the web server
-let botReady = false;  // Keep track of connection status
-
-client.on('qr', (qr) => {
-    qrCodeData = qr;
-    botReady = false; // If we get a QR, we are definitely not ready
-    console.log('\n--- SCAN THE QR CODE BELOW ---');
-    console.log('Go to your Render Web Service URL in your browser to scan the QR code visually!');
-    qrcode.generate(qr, { small: true });
-});
-
-client.on('ready', () => {
-    qrCodeData = null; // Clear it once connected
-    botReady = true;
-    console.log('\nWhatsApp Bot is ready and listening!');
-    console.log('Mode: Restricted Access (Authorized numbers only)');
-    console.log(`Authorized Numbers: ${AUTHORIZED_NUMBERS.join(', ')}`);
-});
-
-/**
- * Message Listener
- * Using 'message_create' to catch messages sent by YOURSELF too.
- */
-client.on('message_create', async (msg) => {
-    const text = msg.body.trim().toLowerCase();
-
-    // Identity check
-    const sender = msg.author || msg.from;
-
-    // Log all incoming messages for debugging
-    console.log(`[DEBUG] Incoming message from ${sender} (fromMe: ${msg.fromMe}): ${msg.body.substring(0, 50)}...`);
-
-    // RESTRICTION: Only respond to authorized numbers OR messages sent by the linked phone itself
-    if (!msg.fromMe && !AUTHORIZED_NUMBERS.includes(sender)) {
-        console.log(`[DEBUG] Unauthorized access attempt from ${sender}. Ignoring.`);
-        return;
-    }
-
-    // MORE ROBUST DETECTION (handles facebook.com, fb.watch, fb.com, fb.me, and share links)
-    const fbLinkRegex = /(facebook\.com|fb\.watch|fb\.com|fb\.me)/i;
-    const hasFbLink = fbLinkRegex.test(msg.body);
-
-    console.log(`[DEBUG] Message info: Type=${msg.type}, Sender=${sender}`);
-    console.log(`[DEBUG] Body Length: ${msg.body.length}`);
-    console.log(`[DEBUG] Text: ${msg.body.substring(0, 100)}`);
-    console.log(`[DEBUG] hasFbLink: ${hasFbLink}`);
-
-    if (hasFbLink) {
-        console.log(`\n[${new Date().toLocaleTimeString()}] Processing link from: ${msg.from}`);
-
-        // More flexible URL matching (catches links even if they have weird prefixes or extra text)
-        const urlMatch = msg.body.match(/(https?:\/\/[^\s]+|www\.facebook\.com[^\s]+|fb\.watch[^\s]+|fb\.com[^\s]+)/i);
-
-        if (!urlMatch) {
-            console.log(`[DEBUG] hasFbLink was true, but could not extract a valid URL from: ${msg.body}`);
-            return;
-        }
-
-        let url = urlMatch[0];
-        // Prepend https:// if it's missing (e.g. if link started with www.facebook.com)
-        if (!url.startsWith('http')) {
-            url = 'https://' + url;
-        }
-
-        console.log(`[DEBUG] Extracted URL: ${url}`);
-        const filename = `fb_video_${Date.now()}.mp4`;
-        const filePath = path.join(TEMP_DIR, filename);
-
-        try {
-            await msg.reply('⏳ Hang on! I\'m fetching that video for you...');
-
-            console.log('Downloading video...');
-            // Wrap in a promise to enforce a 2-minute total timeout
-            const downloadPromise = downloadFacebookVideo(url, filePath);
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Download timed out after 2 minutes')), 120000)
-            );
-
-            await Promise.race([downloadPromise, timeoutPromise]);
-
-            if (await fs.pathExists(filePath)) {
-                console.log('Sending video...');
-                const media = MessageMedia.fromFilePath(filePath);
-
-                await client.sendMessage(msg.from, media, {
-                    caption: 'Here is your Facebook video! 🎬',
-                    quotedMessageId: msg.id._serialized
-                });
-
-                console.log('✓ Success: Video sent.');
-            } else {
-                throw new Error('Download failed: File not found.');
-            }
-
-        } catch (error) {
-            console.error('✘ Error:', error.message);
-            await msg.reply('❌ Oops! I couldn\'t download that video. It might be private or the link might be broken.');
-        } finally {
-            if (await fs.pathExists(filePath)) {
-                await fs.remove(filePath);
-                console.log('Cleaned up temporary file.');
-            }
-        }
-    }
-});
-
 // --- RENDER WEB SERVICE HEALTH CHECK & QR CODE VISUALIZER ---
 // Render requires web services to bind to a port, otherwise the deploy fails.
 const http = require('http');
@@ -431,10 +448,8 @@ http.createServer((req, res) => {
     console.log(`Health check server listening on port ${port} / QR Visualizer URL`);
 });
 
-console.log('Starting WhatsApp Client...');
-client.initialize().catch(err => {
-    console.error('Initialization Error:', err);
-});
+// Boot everything up
+initializeBot();
 
 // GLOBAL ERROR HANDLING TO PREVENT CRASHES
 process.on('uncaughtException', (err) => {
