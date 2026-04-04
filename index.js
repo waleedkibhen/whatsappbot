@@ -91,6 +91,18 @@ async function downloadFacebookVideo(url, outputPath) {
             'Upgrade-Insecure-Requests': '1'
         });
 
+        // 🚀 SPEED OPTIMIZATION: Block heavy layout assets
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const blockedTypes = ['image', 'stylesheet', 'font', 'media', 'other'];
+            // We only need the HTML document and maybe scripts to load the underlying URL
+            if (blockedTypes.includes(req.resourceType())) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
         console.log(`[DEBUG] Step 2: Navigating to page...`);
         // Use a longer timeout and wait for network to be idle
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
