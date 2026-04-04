@@ -197,9 +197,11 @@ async function downloadFacebookVideo(url, outputPath) {
  * QR Code Generation
  */
 let qrCodeData = null; // Store it for the web server
+let botReady = false;  // Keep track of connection status
 
 client.on('qr', (qr) => {
     qrCodeData = qr;
+    botReady = false; // If we get a QR, we are definitely not ready
     console.log('\n--- SCAN THE QR CODE BELOW ---');
     console.log('Go to your Render Web Service URL in your browser to scan the QR code visually!');
     qrcode.generate(qr, { small: true });
@@ -207,6 +209,7 @@ client.on('qr', (qr) => {
 
 client.on('ready', () => {
     qrCodeData = null; // Clear it once connected
+    botReady = true;
     console.log('\nWhatsApp Bot is ready and listening!');
     console.log('Mode: Restricted Access (Authorized numbers only)');
     console.log(`Authorized Numbers: ${AUTHORIZED_NUMBERS.join(', ')}`);
@@ -316,23 +319,30 @@ http.createServer((req, res) => {
                 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
                 <style>
                     body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
-                    .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
-                    #qrcode { margin-top: 1.5rem; display: flex; justify-content: center; }
+                    .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; max-width: 600px; }
+                    #qrcode { margin-top: 1.5rem; display: flex; justify-content: center; background: white; padding: 10px; border-radius: 10px; }
                     h2 { margin-top: 0; color: #128C7E; }
-                    p { color: #555; }
+                    p { color: #555; line-height: 1.5; }
+                    .warning { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 5px; font-weight: bold; margin-bottom: 15px;}
                 </style>
             </head>
             <body>
                 <div class="card">
                     <h2>WhatsApp Authentication</h2>
-                    <p>Scan this QR code with your WhatsApp app to link the bot.</p>
+                    <div class="warning">
+                        ⚠️ DO NOT use your normal phone camera to scan this! It will say "URL cannot be scanned".
+                    </div>
+                    <p><strong>Step 1:</strong> Open WhatsApp on your phone.<br>
+                       <strong>Step 2:</strong> Go to Settings > <b>Linked Devices</b>.<br>
+                       <strong>Step 3:</strong> Tap "Link a Device" and scan the code below.</p>
                     <div id="qrcode"></div>
+                    <p style="font-size: 12px; margin-top: 15px;">Page auto-refreshes every 10 seconds.</p>
                 </div>
                 <script>
                     new QRCode(document.getElementById("qrcode"), {
                         text: "${qrCodeData}",
-                        width: 256,
-                        height: 256,
+                        width: 400,
+                        height: 400,
                         colorDark : "#000000",
                         colorLight : "#ffffff",
                         correctLevel : QRCode.CorrectLevel.M
@@ -345,7 +355,7 @@ http.createServer((req, res) => {
             </html>
             `);
             res.end();
-        } else {
+        } else if (botReady) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.write(`
             <!DOCTYPE html>
@@ -355,14 +365,47 @@ http.createServer((req, res) => {
                 <style>
                     body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
                     .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
-                    h2 { color: #128C7E; }
+                    h2 { color: #128C7E; margin-top: 0; }
+                    p { color: #555; }
                 </style>
             </head>
             <body>
                 <div class="card">
                     <h2>✅ WhatsApp Bot is Running!</h2>
-                    <p>The bot is currently linked and active, or waiting for initialization.</p>
+                    <p>The bot is correctly linked to your WhatsApp account and actively listening for messages.</p>
                 </div>
+            </body>
+            </html>
+            `);
+            res.end();
+        } else {
+            // Neither ready nor showing QR code means it's starting up
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>WhatsApp Bot - Starting...</title>
+                <style>
+                    body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background-color: #f0f2f5; margin: 0; }
+                    .card { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; }
+                    h2 { color: #f59e0b; margin-top: 0; }
+                    p { color: #555; }
+                    .loader { border: 4px solid #f3f3f3; border-top: 4px solid #f59e0b; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <div class="loader"></div>
+                    <h2>⏳ Bot is Initializing...</h2>
+                    <p>The Chrome browser is starting up in the background.</p>
+                    <p><strong>Please wait about 20-30 seconds.</strong> If you need to link your device, the QR code will appear shortly.</p>
+                </div>
+                <script>
+                    // Auto-refresh the page every 5 seconds while waiting for init
+                    setTimeout(() => location.reload(), 5000);
+                </script>
             </body>
             </html>
             `);
